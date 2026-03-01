@@ -11,6 +11,8 @@ import { Readable } from "stream";
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Diagnostic: log every incoming request
 app.use((req, res, next) => {
@@ -70,7 +72,70 @@ app.get("/.well-known/oauth-authorization-server", (req, res) => {
   });
 });
 
-// 4. Proxy /token to Descope's token endpoint
+// 4. In-memory store for redirect URIs (state → original redirect_uri)
+const redirectUriStore = new Map<string, string>();
+
+// 5. Intercept /register to add our callback URL to approved redirect URIs
+app.use("/register", (req: any, _res, next) => {
+  if (req.method === "POST" && req.body?.redirect_uris) {
+    const callbackUrl = `${process.env.SERVER_URL}/callback`;
+    if (!req.body.redirect_uris.includes(callbackUrl)) {
+      req.body.redirect_uris.push(callbackUrl);
+    }
+    console.log("[/register] redirect_uris:", req.body.redirect_uris);
+  }
+  next();
+});
+
+// 6. Override /authorize — swap redirect_uri with our /callback intermediary
+app.get("/authorize", (req, res) => {
+  const params = { ...(req.query as Record<string, string>) };
+
+  // Save original redirect_uri keyed by state
+  const originalRedirectUri = params.redirect_uri;
+  const state = params.state;
+  if (originalRedirectUri && state) {
+    redirectUriStore.set(state, originalRedirectUri);
+  }
+
+  // Replace with our callback
+  params.redirect_uri = `${process.env.SERVER_URL}/callback`;
+  if (!params.scope) params.scope = "openid";
+
+  const descopeUrl = new URL("https://api.descope.com/oauth2/v1/apps/authorize");
+  descopeUrl.search = new URLSearchParams(params).toString();
+
+  console.log("[/authorize] Original redirect_uri:", originalRedirectUri);
+  console.log("[/authorize] Replaced with:", params.redirect_uri);
+  console.log("[/authorize] Redirecting to:", descopeUrl.toString());
+
+  res.redirect(descopeUrl.toString());
+});
+
+// 7. /callback — receives redirect from Descope, logs params, forwards to Claude Desktop
+app.get("/callback", (req, res) => {
+  console.log("[/callback] Params from Descope:", JSON.stringify(req.query));
+
+  const state = req.query.state as string;
+  const originalRedirectUri = redirectUriStore.get(state);
+  redirectUriStore.delete(state);
+
+  if (!originalRedirectUri) {
+    console.error("[/callback] No stored redirect_uri for state:", state);
+    return res.status(400).send("Unknown OAuth state");
+  }
+
+  // Forward ALL params to the original redirect_uri
+  const redirectUrl = new URL(originalRedirectUri);
+  for (const [key, value] of Object.entries(req.query)) {
+    redirectUrl.searchParams.set(key, value as string);
+  }
+
+  console.log("[/callback] Forwarding to:", redirectUrl.toString());
+  res.redirect(redirectUrl.toString());
+});
+
+// 8. Proxy /token to Descope's token endpoint
 // (Claude Desktop discovers this via AS metadata but it doesn't exist on our proxy natively)
 app.post("/token", express.urlencoded({ extended: false }), async (req, res) => {
   try {
@@ -93,10 +158,10 @@ app.post("/token", express.urlencoded({ extended: false }), async (req, res) => 
   }
 });
 
-// 5. Serve OAuth metadata, DCR (/register), authorize (/authorize), and bearer auth on /mcp
+// 9. Serve OAuth metadata, DCR (/register), authorize (/authorize), and bearer auth on /mcp
 app.use(descopeMcpAuthRouter(undefined, descopeProvider));
 
-// 6. Budget policy middleware — check role + amount before forwarding
+// 10. Budget policy middleware — check role + amount before forwarding
 app.use("/mcp", express.json(), async (req: any, res: any, next: any) => {
   if (req.method !== "POST" || !req.body) return next();
 
@@ -144,7 +209,7 @@ app.use("/mcp", express.json(), async (req: any, res: any, next: any) => {
   next();
 });
 
-// 7. Proxy to n8n
+// 11. Proxy to n8n
 const proxy = httpProxy.createProxyServer({
   target: N8N_URL,
   changeOrigin: true,
