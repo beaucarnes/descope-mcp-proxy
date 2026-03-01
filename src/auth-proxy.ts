@@ -12,6 +12,15 @@ import { Readable } from "stream";
 const app = express();
 app.use(cors());
 
+// Diagnostic: log every incoming request
+app.use((req, res, next) => {
+  console.log(`[${req.method}] ${req.path}`, {
+    query: req.query,
+    body: req.body,
+  });
+  next();
+});
+
 const PORT = process.env.PORT || process.env.AUTH_PROXY_PORT || 3000;
 const N8N_URL = process.env.N8N_MCP_SERVER_URL!;
 
@@ -25,6 +34,7 @@ const descopeProvider = new DescopeMcpProvider({
   },
   dynamicClientRegistrationOptions: {
     authPageUrl: `https://api.descope.com/login/${process.env.DESCOPE_PROJECT_ID!}?flow=sign-in`,
+    nonConfidentialClient: true,
   },
 });
 
@@ -53,7 +63,7 @@ app.get("/.well-known/oauth-authorization-server", (req, res) => {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["client_secret_post"],
+    token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint: "https://api.descope.com/oauth2/v1/apps/revoke",
     revocation_endpoint_auth_methods_supported: ["client_secret_post"],
     scopes_supported: ["openid", "profile"],
@@ -64,6 +74,7 @@ app.get("/.well-known/oauth-authorization-server", (req, res) => {
 // (Claude Desktop discovers this via AS metadata but it doesn't exist on our proxy natively)
 app.post("/token", express.urlencoded({ extended: false }), async (req, res) => {
   try {
+    console.log("[/token] Request body:", req.body);
     const descopeTokenUrl = "https://api.descope.com/oauth2/v1/apps/token";
     const response = await fetch(descopeTokenUrl, {
       method: "POST",
@@ -71,6 +82,7 @@ app.post("/token", express.urlencoded({ extended: false }), async (req, res) => 
       body: new URLSearchParams(req.body).toString(),
     });
     const responseBody = await response.text();
+    console.log("[/token] Descope response:", response.status, responseBody);
     res
       .status(response.status)
       .set("Content-Type", response.headers.get("Content-Type") || "application/json")
