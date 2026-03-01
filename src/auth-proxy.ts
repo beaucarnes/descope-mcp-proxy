@@ -15,21 +15,21 @@ app.use(cors());
 const PORT = process.env.PORT || process.env.AUTH_PROXY_PORT || 3000;
 const N8N_URL = process.env.N8N_MCP_SERVER_URL!;
 
-// 1. Initialize Descope provider
+// 1. Initialize Descope provider — enable Authorization Server for /authorize + /register
 const descopeProvider = new DescopeMcpProvider({
   projectId: process.env.DESCOPE_PROJECT_ID!,
   managementKey: process.env.DESCOPE_MANAGEMENT_KEY!,
   serverUrl: process.env.SERVER_URL!,
+  authorizationServerOptions: {
+    isDisabled: false,
+  },
   dynamicClientRegistrationOptions: {
     authPageUrl: `https://api.descope.com/login/${process.env.DESCOPE_PROJECT_ID!}?flow=mcp-auth-consent`,
   },
 });
 
-// 2. Serve OAuth metadata + DCR endpoints
+// 2. Serve OAuth metadata, DCR (/register), authorize (/authorize), and bearer auth on /mcp
 app.use(descopeMcpAuthRouter(undefined, descopeProvider));
-
-// 3. Protect /mcp with bearer token validation
-app.use(["/mcp"], descopeMcpBearerAuth(descopeProvider));
 
 // 4. Budget policy middleware — check role + amount before forwarding
 app.use("/mcp", express.json(), async (req: any, res: any, next: any) => {
