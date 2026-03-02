@@ -25,6 +25,12 @@ app.use((req, res, next) => {
 
 const PORT = process.env.PORT || process.env.AUTH_PROXY_PORT || 3000;
 const N8N_URL = process.env.N8N_MCP_SERVER_URL!;
+const N8N_BEARER_TOKEN = process.env.N8N_BEARER_TOKEN;
+
+if (!N8N_URL) {
+  console.error("FATAL: N8N_MCP_SERVER_URL environment variable is not set");
+  process.exit(1);
+}
 
 // 1. Initialize Descope provider — enable Authorization Server for /authorize + /register
 const descopeProvider = new DescopeMcpProvider({
@@ -218,15 +224,19 @@ const proxy = httpProxy.createProxyServer({
 
 proxy.on("error", (err, _req, res) => {
   console.error("Proxy error:", err);
-  if ("writeHead" in res) {
+  if (res && "writeHead" in res) {
     (res as any).writeHead?.(502, { "Content-Type": "application/json" });
     (res as any).end?.(JSON.stringify({ error: "Bad gateway" }));
   }
 });
 
 app.use("/mcp", (req: any, res: any) => {
-  // Strip auth header — n8n doesn't need the Descope token
-  delete req.headers["authorization"];
+  // Replace Descope auth header with n8n bearer token if configured
+  if (N8N_BEARER_TOKEN) {
+    req.headers["authorization"] = `Bearer ${N8N_BEARER_TOKEN}`;
+  } else {
+    delete req.headers["authorization"];
+  }
 
   proxy.web(req, res, {
     buffer: Readable.from([req.body ?? ""]),
