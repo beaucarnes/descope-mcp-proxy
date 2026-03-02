@@ -11,7 +11,13 @@ import { Readable } from "stream";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf; // preserve original bytes for proxy forwarding
+    },
+  })
+);
 app.use(express.urlencoded({ extended: false }));
 
 // Diagnostic: log every incoming request
@@ -168,7 +174,7 @@ app.post("/token", express.urlencoded({ extended: false }), async (req, res) => 
 app.use(descopeMcpAuthRouter(undefined, descopeProvider));
 
 // 10. Budget policy middleware — check role + amount before forwarding
-app.use("/mcp", express.json(), async (req: any, res: any, next: any) => {
+app.use("/mcp", async (req: any, res: any, next: any) => {
   if (req.method !== "POST" || !req.body) return next();
 
   // Enforce budget policy on payment tools
@@ -208,10 +214,6 @@ app.use("/mcp", express.json(), async (req: any, res: any, next: any) => {
     }
   }
 
-  // Re-serialize body for proxy (express.json() consumed the raw stream)
-  const serialized = JSON.stringify(req.body);
-  req.body = serialized;
-  req.headers["content-length"] = Buffer.byteLength(serialized).toString();
   next();
 });
 
@@ -238,8 +240,10 @@ app.use("/mcp", (req: any, res: any) => {
     delete req.headers["authorization"];
   }
 
+  console.log("[/mcp proxy]", req.method, "body length:", req.rawBody?.length ?? 0);
+
   proxy.web(req, res, {
-    buffer: Readable.from([req.body ?? ""]),
+    buffer: req.rawBody?.length ? Readable.from([req.rawBody]) : undefined,
     ignorePath: true,
   });
 });
