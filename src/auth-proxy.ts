@@ -173,6 +173,45 @@ app.post("/token", express.urlencoded({ extended: false }), async (req, res) => 
 // 9. Serve OAuth metadata, DCR (/register), authorize (/authorize), and bearer auth on /mcp
 app.use(descopeMcpAuthRouter(undefined, descopeProvider));
 
+// 9b. Permission-based access control
+const REQUIRED_PERMISSION = process.env.REQUIRED_PERMISSION; // e.g. "mcp:access"
+
+app.use("/mcp", (req: any, res: any, next: any) => {
+  if (!REQUIRED_PERMISSION) return next(); // backward compatible if unset
+
+  const token = req.auth?.token;
+  if (!token) {
+    console.warn("[permission-check] No token on req.auth — rejecting");
+    return res.status(403).json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Access denied: no authentication token present." },
+      id: req.body?.id || null,
+    });
+  }
+
+  let permissions: string[] = [];
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+    permissions = payload.permissions || [];
+  } catch (e) {
+    console.error("[permission-check] Failed to decode JWT:", e);
+  }
+
+  if (!permissions.includes(REQUIRED_PERMISSION)) {
+    console.warn(
+      `[permission-check] Rejected: user lacks "${REQUIRED_PERMISSION}". Has: [${permissions.join(", ")}]`
+    );
+    return res.status(403).json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: `Access denied: you do not have the required "${REQUIRED_PERMISSION}" permission.` },
+      id: req.body?.id || null,
+    });
+  }
+
+  console.log(`[permission-check] Allowed: user has "${REQUIRED_PERMISSION}"`);
+  next();
+});
+
 // 10. Budget policy middleware — check role + amount before forwarding
 app.use("/mcp", async (req: any, res: any, next: any) => {
   if (req.method !== "POST" || !req.body) return next();
