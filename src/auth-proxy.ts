@@ -35,7 +35,7 @@ const descopeProvider = new DescopeMcpProvider({
     isDisabled: false,
   },
   dynamicClientRegistrationOptions: {
-    authPageUrl: `https://api.descope.com/login/${process.env.DESCOPE_PROJECT_ID!}?flow=sign-in`,
+    authPageUrl: `https://api.descope.com/login/${process.env.DESCOPE_PROJECT_ID!}?flow=inbound-apps-tenant-consent`,
     nonConfidentialClient: true,
   },
 });
