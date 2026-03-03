@@ -87,14 +87,21 @@ app.get("/.well-known/oauth-authorization-server", (req, res) => {
 // 4. In-memory store for redirect URIs (state → original redirect_uri)
 const redirectUriStore = new Map<string, string>();
 
-// 5. Intercept /register to add our callback URL to approved redirect URIs
+// 5. Intercept /register to add our callback URL and inject payment:execute scope
 app.use("/register", (req: any, _res, next) => {
-  if (req.method === "POST" && req.body?.redirect_uris) {
-    const callbackUrl = `${process.env.SERVER_URL}/callback`;
-    if (!req.body.redirect_uris.includes(callbackUrl)) {
-      req.body.redirect_uris.push(callbackUrl);
+  if (req.method === "POST") {
+    if (req.body?.redirect_uris) {
+      const callbackUrl = `${process.env.SERVER_URL}/callback`;
+      if (!req.body.redirect_uris.includes(callbackUrl)) {
+        req.body.redirect_uris.push(callbackUrl);
+      }
+      console.log("[/register] redirect_uris:", req.body.redirect_uris);
     }
-    console.log("[/register] redirect_uris:", req.body.redirect_uris);
+    // Inject payment:execute so Descope registers the client with this scope allowed
+    const existingScopes = new Set((req.body?.scope || "openid").split(" "));
+    existingScopes.add("payment:execute");
+    req.body.scope = Array.from(existingScopes).join(" ");
+    console.log("[/register] scope:", req.body.scope);
   }
   next();
 });
