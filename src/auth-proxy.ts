@@ -80,7 +80,7 @@ app.get("/.well-known/oauth-authorization-server", (req, res) => {
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint: "https://api.descope.com/oauth2/v1/apps/revoke",
     revocation_endpoint_auth_methods_supported: ["client_secret_post"],
-    scopes_supported: ["openid", "profile"],
+    scopes_supported: ["openid", "profile", "payment:execute"],
   });
 });
 
@@ -112,7 +112,10 @@ app.get("/authorize", (req, res) => {
 
   // Replace with our callback
   params.redirect_uri = `${process.env.SERVER_URL}/callback`;
-  if (!params.scope) params.scope = "openid";
+  // Always ensure payment:execute is included so it appears on the consent screen
+  const requestedScopes = new Set((params.scope || "openid").split(" "));
+  requestedScopes.add("payment:execute");
+  params.scope = Array.from(requestedScopes).join(" ");
 
   const descopeUrl = new URL("https://api.descope.com/oauth2/v1/apps/authorize");
   descopeUrl.search = new URLSearchParams(params).toString();
