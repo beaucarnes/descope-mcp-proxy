@@ -174,7 +174,7 @@ app.post("/token", express.urlencoded({ extended: false }), async (req, res) => 
 app.use(descopeMcpAuthRouter(undefined, descopeProvider));
 
 // 9b. Permission-based access control
-const REQUIRED_PERMISSION = process.env.REQUIRED_PERMISSION; // e.g. "mcp:access"
+const REQUIRED_PERMISSION = process.env.REQUIRED_PERMISSION; // e.g. "payment:execute"
 
 app.use("/mcp", (req: any, res: any, next: any) => {
   if (!REQUIRED_PERMISSION) return next(); // backward compatible if unset
@@ -212,51 +212,7 @@ app.use("/mcp", (req: any, res: any, next: any) => {
   next();
 });
 
-// 10. Budget policy middleware — check role + amount before forwarding
-app.use("/mcp", async (req: any, res: any, next: any) => {
-  if (req.method !== "POST" || !req.body) return next();
-
-  // Enforce budget policy on payment tools
-  if (req.body.method === "tools/call") {
-    const toolName = req.body.params?.name;
-    const args = req.body.params?.arguments;
-
-    if (toolName === "process_payment" || toolName === "pay_invoice") {
-      // Decode JWT payload to extract roles
-      const token = req.auth?.token;
-      let roles: string[] = [];
-
-      if (token) {
-        try {
-          const payload = JSON.parse(
-            Buffer.from(token.split(".")[1], "base64").toString()
-          );
-          roles = payload.roles || [];
-        } catch (e) {
-          console.error("Failed to decode token for role check:", e);
-        }
-      }
-
-      const isCFO = roles.includes("CFO");
-      const amount = parseFloat(args?.amount || "0");
-
-      if (!isCFO && amount > 500) {
-        return res.status(403).json({
-          jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message: `Policy denied: $${amount} exceeds spending authority for your role. Max: $500.`,
-          },
-          id: req.body.id || null,
-        });
-      }
-    }
-  }
-
-  next();
-});
-
-// 11. Proxy to n8n
+// 10. Proxy to n8n
 const proxy = httpProxy.createProxyServer({
   target: N8N_URL,
   changeOrigin: true,
