@@ -87,7 +87,7 @@ app.get("/.well-known/oauth-authorization-server", (req, res) => {
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint: "https://api.descope.com/oauth2/v1/apps/revoke",
     revocation_endpoint_auth_methods_supported: ["client_secret_post"],
-    scopes_supported: ["openid", "profile", "payment:execute"],
+    scopes_supported: ["openid", "profile", "content_publish"],
   });
 });
 
@@ -119,9 +119,9 @@ app.get("/authorize", (req, res) => {
 
   // Replace with our callback
   params.redirect_uri = `${process.env.SERVER_URL}/callback`;
-  // Always ensure payment:execute is included so it appears on the consent screen
+  // Always ensure content_publish is included so it appears on the consent screen
   const requestedScopes = new Set((params.scope || "openid").split(" "));
-  requestedScopes.add("payment:execute");
+  requestedScopes.add("content_publish");
   params.scope = Array.from(requestedScopes).join(" ");
 
   const descopeUrl = new URL("https://api.descope.com/oauth2/v1/apps/authorize");
@@ -184,7 +184,7 @@ app.post("/token", express.urlencoded({ extended: false }), async (req, res) => 
 app.use(descopeMcpAuthRouter(undefined, descopeProvider));
 
 // 9b. Permission-based access control
-const REQUIRED_PERMISSION = process.env.REQUIRED_PERMISSION; // e.g. "payment:execute"
+const REQUIRED_PERMISSION = process.env.REQUIRED_PERMISSION; // e.g. "content_publish"
 
 app.use("/mcp", (req: any, res: any, next: any) => {
   if (!REQUIRED_PERMISSION) return next(); // backward compatible if unset
