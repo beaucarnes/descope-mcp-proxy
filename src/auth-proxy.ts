@@ -51,8 +51,8 @@ const descopeProvider = new DescopeMcpProvider({
     nonConfidentialClient: true,
     permissionScopes: [
       {
-        name: "payment:execute",
-        description: "Execute payment",
+        name: "content_publish",
+        description: "Content Publish",
         required: true,
       },
     ],
